@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>备忘录</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <section class="auth-gate" id="authGate" aria-busy="true">
+      <form class="auth-panel" id="authForm">
+        <h1 id="authTitle">正在加载</h1>
+        <input id="authPassword" type="password" autocomplete="current-password" minlength="8" placeholder="密码" aria-label="密码">
+        <button id="authSubmit" type="submit">继续</button>
+        <p id="authMessage"></p>
+      </form>
+    </section>
+
+    <section class="modal-gate" id="passwordGate" hidden>
+      <form class="password-panel" id="passwordForm">
+        <h2>修改密码</h2>
+        <input id="currentPassword" type="password" autocomplete="current-password" minlength="8" placeholder="当前密码" aria-label="当前密码">
+        <input id="nextPassword" type="password" autocomplete="new-password" minlength="8" placeholder="新密码" aria-label="新密码">
+        <input id="confirmPassword" type="password" autocomplete="new-password" minlength="8" placeholder="确认新密码" aria-label="确认新密码">
+        <div class="password-actions">
+          <button id="cancelPassword" type="button">取消</button>
+          <button id="submitPassword" type="submit">保存</button>
+        </div>
+        <p id="passwordMessage"></p>
+      </form>
+    </section>
+
+    <div class="app-shell">
+      <header class="mobile-nav" aria-label="移动端导航">
+        <button class="mobile-back" id="mobileBack" type="button" aria-label="返回">
+          <i data-lucide="chevron-left" aria-hidden="true"></i>
+          <span id="mobileBackLabel">返回</span>
+        </button>
+        <strong id="mobileTitle">文件夹</strong>
+        <div class="mobile-actions" id="mobileActions">
+          <button class="mobile-more-button" id="mobileMore" type="button" aria-label="更多操作" title="更多操作">
+            <i data-lucide="ellipsis" aria-hidden="true"></i>
+          </button>
+          <div class="mobile-action-menu" id="mobileActionMenu" hidden>
+            <label>
+              <span>移动到</span>
+              <select id="mobileNoteFolderSelect" class="mobile-folder-select" aria-label="移动笔记到文件夹"></select>
+            </label>
+            <button id="mobileMenuPreview" type="button">
+              <i data-lucide="eye" aria-hidden="true"></i>
+              <span>Markdown 预览</span>
+            </button>
+            <button id="mobileMenuSave" type="button">
+              <i data-lucide="save" aria-hidden="true"></i>
+              <span>保存</span>
+            </button>
+            <button id="mobileMenuDelete" type="button">
+              <i data-lucide="trash-2" aria-hidden="true"></i>
+              <span>删除</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <aside class="folders" aria-label="文件夹">
+        <div class="folder-scroll">
+          <div class="sidebar-title">iCloud</div>
+          <div id="folderList"></div>
+        </div>
+        <div class="folder-footer">
+          <button class="new-folder-button" id="newFolder" type="button" aria-label="新建文件夹" title="新建文件夹">
+            <i data-lucide="folder-plus" aria-hidden="true"></i>
+            <span>新建文件夹</span>
+          </button>
+        </div>
+      </aside>
+
+      <main class="notes-pane" aria-label="笔记列表">
+        <header class="toolbar">
+          <button class="icon-button" id="newNote" type="button" aria-label="新建笔记" title="新建笔记">
+            <i data-lucide="plus" aria-hidden="true"></i>
+          </button>
+          <button class="icon-button" id="deleteNote" type="button" aria-label="删除笔记" title="删除笔记">
+            <i data-lucide="trash-2" aria-hidden="true"></i>
+          </button>
+          <button class="icon-button" id="previewToggle" type="button" aria-label="Markdown 预览" title="Markdown 预览">
+            <i data-lucide="eye" aria-hidden="true"></i>
+          </button>
+          <button class="icon-button" id="changePassword" type="button" aria-label="修改密码" title="修改密码">
+            <i data-lucide="key-round" aria-hidden="true"></i>
+          </button>
+          <button class="icon-button" id="logout" type="button" aria-label="退出登录" title="退出登录">
+            <i data-lucide="log-out" aria-hidden="true"></i>
+          </button>
+        </header>
+        <div class="search-wrap">
+          <input id="searchInput" type="search" placeholder="搜索" autocomplete="off" aria-label="搜索笔记">
+        </div>
+        <div class="list-heading">
+          <strong id="listTitle">所有笔记</strong>
+          <span id="listCount">0 个笔记</span>
+        </div>
+        <section class="note-list" id="noteList" aria-label="笔记"></section>
+      </main>
+
+      <section class="editor-pane" aria-label="编辑器">
+        <div class="editor-meta">
+          <time id="editedAt"></time>
+          <span class="save-status" id="saveStatus" aria-live="polite"></span>
+          <select id="noteFolderSelect" aria-label="移动笔记到文件夹"></select>
+          <button class="editor-preview-button" id="editorPreviewToggle" type="button" aria-label="Markdown 预览" title="Markdown 预览">
+            <i data-lucide="eye" aria-hidden="true"></i>
+          </button>
+          <button class="editor-save-button" id="saveNote" type="button" aria-label="保存笔记" title="保存笔记">
+            <i data-lucide="save" aria-hidden="true"></i>
+          </button>
+        </div>
+        <textarea id="editor" spellcheck="true" aria-label="笔记正文"></textarea>
+        <article class="markdown-preview" id="markdownPreview" hidden></article>
+        <div class="empty-state" id="emptyState">
+          <strong>没有选择笔记</strong>
+          <span>新建或选择一条笔记开始编辑</span>
+        </div>
+      </section>
+
+      <footer class="mobile-bottom" aria-label="移动端操作">
+        <div class="mobile-search" id="mobileSearchWrap">
+          <input id="mobileSearchInput" type="search" placeholder="搜索" autocomplete="off" aria-label="移动端搜索">
+        </div>
+        <button class="mobile-edit-button" id="mobileEdit" type="button" aria-label="新建笔记" title="新建笔记">
+          <i data-lucide="square-pen" aria-hidden="true"></i>
+        </button>
+        <button class="mobile-preview-button" id="mobilePreviewToggle" type="button" aria-label="Markdown 预览" title="Markdown 预览">
+          <i data-lucide="eye" aria-hidden="true"></i>
+        </button>
+        <button class="mobile-save-button" id="mobileSave" type="button" aria-label="保存笔记" title="保存笔记">
+          <i data-lucide="save" aria-hidden="true"></i>
+        </button>
+      </footer>
+    </div>
+
+    <script src="/node_modules/lucide/dist/umd/lucide.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,12 @@
+{
+	"type": "module",
+	"scripts": {
+		"dev": "node server.mjs",
+		"seed:mock": "node scripts/seed-mock.mjs"
+	},
+	"dependencies": {
+		"@hono/node-server": "^2.0.4",
+		"hono": "^4.12.23",
+		"lucide": "^1.16.0"
+	}
+}

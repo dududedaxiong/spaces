@@ -1,5 +1,14 @@
 const uiStorageKey = "memo-ui-state-v1";
 
+if (typeof window !== 'undefined' && !window.crypto.randomUUID) {
+  window.crypto.randomUUID = function () {
+    return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+      (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+    );
+  };
+}
+
+
 if (new URLSearchParams(window.location.search).get("device") === "mobile") {
   document.documentElement.classList.add("force-mobile");
 }
@@ -28,6 +37,9 @@ const state = authStatus.authenticated
   ? await loadState()
   : hydrateState({ notes: [], folders: defaultFolders() });
 let saveTimer = null;
+let saveTimerNoteId = null;
+let saveInFlightNoteId = null;
+let queuedSaveNoteId = null;
 let saveStatusTimer = null;
 const saveDelay = 700;
 const maxNoteBodyLength = 1024 * 1024;
@@ -46,6 +58,13 @@ const els = {
   cancelPassword: document.querySelector("#cancelPassword"),
   submitPassword: document.querySelector("#submitPassword"),
   passwordMessage: document.querySelector("#passwordMessage"),
+  folderGate: document.querySelector("#folderGate"),
+  folderForm: document.querySelector("#folderForm"),
+  folderTitle: document.querySelector("#folderTitle"),
+  folderName: document.querySelector("#folderName"),
+  cancelFolder: document.querySelector("#cancelFolder"),
+  submitFolder: document.querySelector("#submitFolder"),
+  folderMessage: document.querySelector("#folderMessage"),
   folderList: document.querySelector("#folderList"),
   newFolder: document.querySelector("#newFolder"),
   listTitle: document.querySelector("#listTitle"),
@@ -242,35 +261,11 @@ document.addEventListener("click", (event) => {
   els.mobileActionMenu.hidden = true;
 });
 
-els.newFolder.addEventListener("click", async () => {
-  const name = getUniqueFolderName("新建文件夹");
-  const folder = {
-    id: crypto.randomUUID(),
-    name,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    version: 1
-  };
-
-  state.folders.push(folder);
-  state.activeFolder = folder.id;
-  state.selectedId = null;
-  state.mobileView = "list";
-  render();
-
-  try {
-    const saved = await createFolder(folder);
-    Object.assign(folder, saved);
-    setSaveStatus("文件夹已创建", "ok");
-    renderFolders();
-    renderEditor();
-  } catch (error) {
-    state.folders = state.folders.filter((entry) => entry.id !== folder.id);
-    state.activeFolder = "all";
-    setSaveStatus("创建失败", "error");
-    render();
-    console.error("Failed to create folder.", error);
-  }
+els.newFolder.addEventListener("click", () => {
+  openFolderGate({
+    mode: "create",
+    name: getUniqueFolderName("新建文件夹")
+  });
 });
 
 els.editor.addEventListener("input", (event) => {
@@ -317,6 +312,31 @@ els.changePassword.addEventListener("click", async () => {
 });
 
 els.cancelPassword.addEventListener("click", hidePasswordGate);
+
+els.cancelFolder.addEventListener("click", hideFolderGate);
+
+els.folderForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const mode = els.folderForm.dataset.mode;
+  const folderId = els.folderForm.dataset.folderId;
+  const name = els.folderName.value.trim();
+  if (!name) {
+    els.folderMessage.textContent = "请输入文件夹名称";
+    return;
+  }
+
+  els.submitFolder.disabled = true;
+  els.folderMessage.textContent = "";
+  try {
+    if (mode === "rename" && folderId) {
+      await submitFolderRename(folderId, name);
+    } else {
+      await submitFolderCreate(name);
+    }
+  } finally {
+    els.submitFolder.disabled = false;
+  }
+});
 
 els.passwordForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -444,37 +464,82 @@ function hidePasswordGate() {
   els.passwordMessage.textContent = "";
 }
 
+function openFolderGate({ mode, name, folderId = "" }) {
+  els.folderForm.dataset.mode = mode;
+  els.folderForm.dataset.folderId = folderId;
+  els.folderTitle.textContent = mode === "rename" ? "重命名文件夹" : "新建文件夹";
+  els.submitFolder.textContent = mode === "rename" ? "保存" : "创建";
+  els.folderName.value = name || "";
+  els.folderMessage.textContent = "";
+  els.folderGate.hidden = false;
+  requestAnimationFrame(() => {
+    els.folderName.focus();
+    els.folderName.select();
+  });
+}
+
+function hideFolderGate() {
+  els.folderGate.hidden = true;
+  els.folderForm.reset();
+  els.folderForm.dataset.mode = "";
+  els.folderForm.dataset.folderId = "";
+  els.folderMessage.textContent = "";
+}
+
 function saveSelectedNote({ immediate = false } = {}) {
-  saveUiState();
   const note = getSelectedNote();
   if (!note) return;
-  if (saveTimer) clearTimeout(saveTimer);
-  if (immediate) {
-    saveTimer = null;
-    sendNote(note.id);
-    return;
-  }
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    sendNote(note.id);
-  }, saveDelay);
-  setSaveStatus("未保存");
+  queueNoteSave(note.id, { immediate });
 }
 
 function flushPendingSave() {
   saveUiState();
   if (!saveTimer) return;
+  const noteId = saveTimerNoteId;
   clearTimeout(saveTimer);
   saveTimer = null;
-  const note = getSelectedNote();
-  if (note) sendNote(note.id, { keepalive: true });
+  saveTimerNoteId = null;
+  if (noteId) sendNote(noteId, { keepalive: true });
+}
+
+function queueNoteSave(noteId, { immediate = false } = {}) {
+  saveUiState();
+
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimerNoteId = noteId;
+
+  if (immediate) {
+    saveTimer = null;
+    saveTimerNoteId = null;
+    sendNote(noteId);
+    return;
+  }
+
+  saveTimer = setTimeout(() => {
+    const queuedNoteId = saveTimerNoteId;
+    saveTimer = null;
+    saveTimerNoteId = null;
+    if (queuedNoteId) sendNote(queuedNoteId);
+  }, saveDelay);
+  setSaveStatus("未保存");
 }
 
 async function sendNote(noteId, { keepalive = false } = {}) {
   const note = state.notes.find((entry) => entry.id === noteId);
   if (!note) return;
 
+  if (saveInFlightNoteId) {
+    queuedSaveNoteId = noteId;
+    return;
+  }
+
   setSaveStatus("保存中");
+  const snapshot = {
+    body: note.body,
+    folder: note.folder,
+    updatedAt: note.updatedAt
+  };
+  saveInFlightNoteId = noteId;
   try {
     const response = await fetch(`/api/notes/${encodeURIComponent(note.id)}`, {
       method: "PATCH",
@@ -497,13 +562,29 @@ async function sendNote(noteId, { keepalive = false } = {}) {
     if (!response.ok) {
       throw new Error(payload.error || `Save API returned ${response.status}`);
     }
-    Object.assign(note, payload);
-    setSaveStatus("已保存", "ok");
+    const noteChangedSinceSend =
+      note.body !== snapshot.body ||
+      note.folder !== snapshot.folder ||
+      note.updatedAt !== snapshot.updatedAt;
+
+    if (noteChangedSinceSend) {
+      note.version = payload.version;
+    } else {
+      Object.assign(note, payload);
+    }
+    setSaveStatus(noteChangedSinceSend ? "继续保存中" : "已保存", noteChangedSinceSend ? "" : "ok");
     renderListOnly();
     renderEditor();
   } catch (error) {
     setSaveStatus("保存失败", "error");
     console.error("Failed to save note.", error);
+  } finally {
+    saveInFlightNoteId = null;
+    if (queuedSaveNoteId) {
+      const nextNoteId = queuedSaveNoteId;
+      queuedSaveNoteId = null;
+      sendNote(nextNoteId);
+    }
   }
 }
 
@@ -534,6 +615,22 @@ async function createFolder(folder) {
   });
   if (!response.ok) throw new Error(`Create folder API returned ${response.status}`);
   return await response.json();
+}
+
+async function updateFolder(folderId, patch) {
+  const response = await fetch(`/api/folders/${encodeURIComponent(folderId)}`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(patch)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (response.status === 409 && payload.folder) {
+    return { status: "conflict", folder: payload.folder };
+  }
+  if (!response.ok) throw new Error(`Update folder API returned ${response.status}`);
+  return payload;
 }
 
 async function removeFolder(folderId) {
@@ -645,7 +742,7 @@ function renderFolders() {
       name: folder.name,
       icon: "folder",
       count: state.notes.filter((note) => note.folder === folder.id).length,
-      deletable: folder.id !== "notes"
+      manageable: folder.id !== "notes"
     }));
 
   const smartFolders = [allFolder, recentFolder].filter((folder) => (
@@ -695,7 +792,7 @@ function renderGroupedNotes(notes) {
 
 function renderFolderItem(folder) {
   const item = document.createElement("div");
-  item.className = `folder-item${folder.deletable ? " can-delete" : ""}`;
+  item.className = `folder-item${folder.manageable ? " can-manage" : ""}`;
 
   const button = document.createElement("button");
   button.className = `folder-row${folder.id === state.activeFolder ? " active" : ""}`;
@@ -708,6 +805,7 @@ function renderFolderItem(folder) {
   icon.setAttribute("aria-hidden", "true");
 
   const name = document.createElement("span");
+  name.className = "folder-name";
   name.textContent = folder.name;
 
   const count = document.createElement("span");
@@ -726,7 +824,23 @@ function renderFolderItem(folder) {
 
   item.append(button);
 
-  if (folder.deletable) {
+  if (folder.manageable) {
+    const editButton = document.createElement("button");
+    editButton.className = "folder-edit";
+    editButton.type = "button";
+    editButton.setAttribute("aria-label", `重命名${folder.name}`);
+    editButton.title = "重命名文件夹";
+    editButton.innerHTML = '<i data-lucide="pencil" aria-hidden="true"></i>';
+    editButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openFolderGate({
+        mode: "rename",
+        folderId: folder.id,
+        name: folder.name
+      });
+    });
+    item.append(editButton);
+
     const deleteButton = document.createElement("button");
     deleteButton.className = "folder-delete";
     deleteButton.type = "button";
@@ -925,6 +1039,77 @@ async function deleteFolder(folderId) {
     const fresh = await loadState();
     Object.assign(state, fresh);
     render();
+  }
+}
+
+async function submitFolderCreate(name) {
+  const now = Date.now();
+  const previousActiveFolder = state.activeFolder;
+  const previousSelectedId = state.selectedId;
+  const folder = {
+    id: crypto.randomUUID(),
+    name,
+    createdAt: now,
+    updatedAt: now,
+    version: 1
+  };
+
+  state.folders.push(folder);
+  state.activeFolder = folder.id;
+  state.selectedId = null;
+  state.mobileView = "list";
+  render();
+  hideFolderGate();
+
+  try {
+    const saved = await createFolder(folder);
+    Object.assign(folder, saved);
+    setSaveStatus("文件夹已创建", "ok");
+    render();
+  } catch (error) {
+    state.folders = state.folders.filter((entry) => entry.id !== folder.id);
+    state.activeFolder = previousActiveFolder;
+    state.selectedId = previousSelectedId;
+    setSaveStatus("创建失败", "error");
+    render();
+    console.error("Failed to create folder.", error);
+  }
+}
+
+async function submitFolderRename(folderId, name) {
+  const folder = state.folders.find((entry) => entry.id === folderId);
+  if (!folder || folder.id === "notes") return;
+
+  const previousName = folder.name;
+  const previousUpdatedAt = folder.updatedAt;
+  const previousVersion = folder.version || 1;
+  folder.name = name;
+  folder.updatedAt = Date.now();
+  folder.version = previousVersion + 1;
+  render();
+  hideFolderGate();
+
+  try {
+    const result = await updateFolder(folder.id, {
+      name: folder.name,
+      updatedAt: folder.updatedAt,
+      version: previousVersion
+    });
+    if (result.status === "conflict" && result.folder) {
+      Object.assign(folder, result.folder);
+      setSaveStatus("文件夹已被其他设备修改", "conflict");
+    } else {
+      Object.assign(folder, result);
+      setSaveStatus("名称已更新", "ok");
+    }
+    render();
+  } catch (error) {
+    folder.name = previousName;
+    folder.updatedAt = previousUpdatedAt;
+    folder.version = previousVersion;
+    setSaveStatus("重命名失败", "error");
+    render();
+    console.error("Failed to rename folder.", error);
   }
 }
 

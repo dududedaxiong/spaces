@@ -29,6 +29,9 @@ export function createSqliteRepository({ dbPath }) {
     async createFolder(folder) {
       return createFolder(db, folder);
     },
+    async updateFolder(id, patch) {
+      return updateFolder(db, id, patch);
+    },
     async deleteFolder(id) {
       return deleteFolder(db, id);
     },
@@ -214,6 +217,25 @@ function createFolder(db, folder) {
     VALUES (?, ?, ?, ?, 1)
   `).run(id, name, createdAt, updatedAt);
   return getFolder(db, id);
+}
+
+function updateFolder(db, id, patch) {
+  const existing = getFolder(db, id);
+  if (!existing || existing.id === "notes") return { status: "missing" };
+  const expectedVersion = Number(patch.version);
+  if (expectedVersion && expectedVersion !== existing.version) {
+    return { status: "conflict", folder: existing };
+  }
+
+  const nextName = String(patch.name ?? existing.name).trim() || existing.name;
+  const nextUpdatedAt = Number(patch.updatedAt || Date.now());
+  const nextVersion = existing.version + 1;
+  db.prepare(`
+    UPDATE folders
+    SET name = ?, updated_at = ?, version = ?
+    WHERE id = ?
+  `).run(nextName, nextUpdatedAt, nextVersion, id);
+  return { status: "ok", folder: getFolder(db, id) };
 }
 
 function deleteFolder(db, id) {

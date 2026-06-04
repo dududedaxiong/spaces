@@ -138,6 +138,16 @@ app.post("/api/folders", async (c) => {
   return c.json(await repository.createFolder(body), 201);
 });
 
+app.patch("/api/folders/:id", async (c) => {
+  const authError = await getAuthError(c);
+  if (authError) return authError;
+  const body = await c.req.json();
+  const result = await repository.updateFolder(c.req.param("id"), body);
+  if (result.status === "missing") return c.json({ ok: false, error: "not_found" }, 404);
+  if (result.status === "conflict") return c.json({ ok: false, error: "conflict", folder: result.folder }, 409);
+  return c.json(result.folder);
+});
+
 app.delete("/api/folders/:id", async (c) => {
   const authError = await getAuthError(c);
   if (authError) return authError;

@@ -56,7 +56,8 @@ body {
 }
 
 .auth-panel,
-.password-panel {
+.password-panel,
+.folder-panel {
   display: grid;
   width: min(360px, calc(100vw - 32px));
   gap: 12px;
@@ -68,14 +69,16 @@ body {
 }
 
 .auth-panel h1,
-.password-panel h2 {
+.password-panel h2,
+.folder-panel h2 {
   margin: 0 0 4px;
   font-size: 22px;
   text-align: center;
 }
 
 .auth-panel input,
-.password-panel input {
+.password-panel input,
+.folder-panel input {
   height: 40px;
   padding: 0 12px;
   border: 1px solid #d7d2c8;
@@ -86,13 +89,15 @@ body {
 }
 
 .auth-panel input:focus,
-.password-panel input:focus {
+.password-panel input:focus,
+.folder-panel input:focus {
   border-color: var(--accent);
   background: white;
 }
 
 .auth-panel button,
-.password-panel button {
+.password-panel button,
+.folder-panel button {
   height: 40px;
   border: 0;
   border-radius: 7px;
@@ -101,7 +106,8 @@ body {
   font-weight: 700;
 }
 
-.password-actions {
+.password-actions,
+.folder-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
@@ -112,8 +118,14 @@ body {
   color: var(--text);
 }
 
+#cancelFolder {
+  background: #d7d2c8;
+  color: var(--text);
+}
+
 .auth-panel p,
-.password-panel p {
+.password-panel p,
+.folder-panel p {
   min-height: 18px;
   margin: 0;
   color: #a24624;
@@ -188,17 +200,30 @@ textarea {
 
 .folder-item {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr auto auto;
   align-items: center;
   gap: 4px;
 }
 
-.folder-item.can-delete {
-  grid-template-columns: 1fr auto;
+.folder-item.can-manage {
+  grid-template-columns: 1fr auto auto;
 }
 
 .folder-item .folder-row {
   min-width: 0;
+}
+
+.folder-edit {
+  display: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  touch-action: manipulation;
+  cursor: default;
 }
 
 .folder-delete {
@@ -214,13 +239,29 @@ textarea {
   cursor: default;
 }
 
-.folder-item.can-delete:hover .folder-delete,
-.folder-item.can-delete:focus-within .folder-delete {
+.folder-item.can-manage:hover .folder-edit,
+.folder-item.can-manage:hover .folder-delete,
+.folder-item.can-manage:focus-within .folder-edit,
+.folder-item.can-manage:focus-within .folder-delete {
   display: grid;
+}
+
+.folder-edit:hover {
+  background: rgba(255, 255, 255, 0.52);
 }
 
 .folder-delete:hover {
   background: var(--selected-soft);
+}
+
+.folder-edit svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
 }
 
 .folder-delete svg {
@@ -235,6 +276,12 @@ textarea {
 
 .folder-row span {
   white-space: nowrap;
+}
+
+.folder-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .folder-row.active {
@@ -717,6 +764,13 @@ textarea {
     flex: 0 0 auto;
   }
 
+  .folder-item.can-manage .folder-edit,
+  .folder-item.can-manage .folder-delete {
+    display: grid;
+    width: 38px;
+    height: 38px;
+  }
+
   .new-folder-button {
     grid-template-columns: 22px;
     width: 38px;
@@ -1195,15 +1249,8 @@ html.force-mobile .app-shell[data-mobile-view="editor"] .mobile-folder-select {
     min-height: 42px;
   }
 
-  .folder-item {
-    grid-template-columns: 1fr;
-  }
-
-  .folder-item.can-delete {
-    grid-template-columns: 1fr 38px;
-  }
-
-  .folder-item.can-delete .folder-delete {
+  .folder-item.can-manage .folder-edit,
+  .folder-item.can-manage .folder-delete {
     display: grid;
     width: 38px;
     height: 38px;
@@ -1484,14 +1531,11 @@ html.force-mobile .folder-row {
 }
 
 html.force-mobile .folder-item {
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr auto auto;
 }
 
-html.force-mobile .folder-item.can-delete {
-  grid-template-columns: 1fr 38px;
-}
-
-html.force-mobile .folder-item.can-delete .folder-delete {
+html.force-mobile .folder-item.can-manage .folder-edit,
+html.force-mobile .folder-item.can-manage .folder-delete {
   display: grid;
   width: 38px;
   height: 38px;

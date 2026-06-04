@@ -26,6 +26,9 @@ export function createD1Repository({ db }) {
     async createFolder(folder) {
       return createFolder(db, folder);
     },
+    async updateFolder(id, patch) {
+      return updateFolder(db, id, patch);
+    },
     async deleteFolder(id) {
       return deleteFolder(db, id);
     },
@@ -188,6 +191,25 @@ async function createFolder(db, folder) {
     VALUES (?, ?, ?, ?, 1)
   `).bind(id, name, createdAt, updatedAt).run();
   return getFolder(db, id);
+}
+
+async function updateFolder(db, id, patch) {
+  const existing = await getFolder(db, id);
+  if (!existing || existing.id === "notes") return { status: "missing" };
+  const expectedVersion = Number(patch.version);
+  if (expectedVersion && expectedVersion !== existing.version) {
+    return { status: "conflict", folder: existing };
+  }
+
+  const nextName = String(patch.name ?? existing.name).trim() || existing.name;
+  const nextUpdatedAt = Number(patch.updatedAt || Date.now());
+  const nextVersion = existing.version + 1;
+  await db.prepare(`
+    UPDATE folders
+    SET name = ?, updated_at = ?, version = ?
+    WHERE id = ?
+  `).bind(nextName, nextUpdatedAt, nextVersion, id).run();
+  return { status: "ok", folder: await getFolder(db, id) };
 }
 
 async function deleteFolder(db, id) {

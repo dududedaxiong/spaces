@@ -33,7 +33,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./CodexWeb
-          file: Dockerfile-rs
+          file: ./CodexWeb/Dockerfile-rs
           push: true
           tags: |
             ghcr.io/${{ steps.lower-repo.outputs.repository }}/codex-web-rs:latest

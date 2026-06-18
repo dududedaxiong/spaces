@@ -11,10 +11,33 @@ set -eu
 #   ${REMOTE_FOLDER}/app -> /app
 
 BACKUP_PATHS="
-/app/apps/api/data/
 /app/data/
 /app/sync.sh
 "
+
+PM2_APP_NAME="${PM2_APP_NAME:-codex-web-api}"
+PM2_STOPPED=0
+
+start_pm2_app_if_stopped() {
+  if [ "$PM2_STOPPED" = "1" ]; then
+    echo "start pm2 app: $PM2_APP_NAME"
+    pm2 start "$PM2_APP_NAME"
+    PM2_STOPPED=0
+  fi
+}
+
+stop_pm2_app_for_backup() {
+  command -v pm2 >/dev/null 2>&1 || {
+    echo "pm2 is required" >&2
+    exit 1
+  }
+
+  trap 'start_pm2_app_if_stopped' EXIT INT TERM
+
+  echo "stop pm2 app: $PM2_APP_NAME"
+  pm2 stop "$PM2_APP_NAME"
+  PM2_STOPPED=1
+}
 
 require_remote_folder() {
   if [ -z "${REMOTE_FOLDER:-}" ]; then
@@ -34,6 +57,8 @@ backup() {
     echo "rclone is required" >&2
     exit 1
   }
+
+  stop_pm2_app_for_backup
 
   for backup_path in $BACKUP_PATHS; do
     case "$backup_path" in
@@ -68,6 +93,9 @@ backup() {
       rclone copyto "$local_path" "$remote_path"
     fi
   done
+
+  start_pm2_app_if_stopped
+  trap - EXIT INT TERM
 }
 
 restore() {

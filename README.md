@@ -4,6 +4,7 @@
 - Alist
 - 青龙
 - Uptime-kuma
+- codex-web：使用cftunnel做预览共享会被封号
 
 ## 演示视频：https://youtu.be/RWjwOYcc8TQ
 

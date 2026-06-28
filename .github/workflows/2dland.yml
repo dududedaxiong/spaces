@@ -32,7 +32,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./halalcloud
+          context: ./Halalcloud
           push: true
           tags: |
             ghcr.io/${{ steps.lower-repo.outputs.repository }}/halalcloud:latest

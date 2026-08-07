@@ -3,6 +3,11 @@
 
 set -e
 
+# ============================================================
+# 0. 配置区
+# ============================================================
+FIXED_PASSWORD="mickvvw"  # 固定密码（兜底）
+
 echo "=========================================="
 echo "🔄 白虎面板数据恢复"
 echo "=========================================="
@@ -79,43 +84,62 @@ for i in {1..30}; do
 done
 
 # ============================================================
-# 6. 获取密码（多种方式）
+# 6. 获取密码（优先级：环境变量 > PM2日志 > 日志文件 > 固定密码）
 # ============================================================
-echo "🔑 获取面板密码..."
+echo "🔑 正在获取面板密码..."
 
-DEFAULT_PASSWORD=""
+PASSWORD=""
 
-# 方式1: 从 PM2 日志
-if [ -z "$DEFAULT_PASSWORD" ]; then
-    DEFAULT_PASSWORD=$(pm2 logs baihu --lines 500 --nostream 2>/dev/null \
+# 方式1: 从环境变量 ADMIN_PASSWORD 获取
+if [ -n "$ADMIN_PASSWORD" ]; then
+    PASSWORD="$ADMIN_PASSWORD"
+    echo "✅ 从环境变量 ADMIN_PASSWORD 获取密码"
+fi
+
+# 方式2: 从 PM2 日志获取
+if [ -z "$PASSWORD" ]; then
+    echo "📋 尝试从 PM2 日志获取密码..."
+    PASSWORD=$(pm2 logs baihu --lines 500 --nostream 2>/dev/null \
         | grep -oP '密\s*码[:：]\s*\K[^,[:space:]]+' \
         | tail -1)
-    echo "方式1结果: ${DEFAULT_PASSWORD:-未找到}"
+    
+    if [ -n "$PASSWORD" ]; then
+        echo "✅ 从 PM2 日志获取密码成功"
+    fi
 fi
 
-# 方式2: 从日志文件
-if [ -z "$DEFAULT_PASSWORD" ]; then
-    DEFAULT_PASSWORD=$(cat ~/.pm2/logs/baihu-out.log 2>/dev/null \
+# 方式3: 从日志文件获取
+if [ -z "$PASSWORD" ]; then
+    echo "📋 尝试从日志文件获取密码..."
+    PASSWORD=$(cat ~/.pm2/logs/baihu-out.log 2>/dev/null \
         | grep -oP '密\s*码[:：]\s*\K[^,[:space:]]+' \
         | tail -1)
-    echo "方式2结果: ${DEFAULT_PASSWORD:-未找到}"
+    
+    if [ -n "$PASSWORD" ]; then
+        echo "✅ 从日志文件获取密码成功"
+    fi
 fi
 
-# 方式3: 使用环境变量
-if [ -z "$DEFAULT_PASSWORD" ]; then
-    DEFAULT_PASSWORD="$ADMIN_PASSWORD"
-    echo "方式3: 使用 ADMIN_PASSWORD"
+# 方式4: 使用固定密码（兜底）
+if [ -z "$PASSWORD" ]; then
+    PASSWORD="$FIXED_PASSWORD"
+    echo "⚠️ 使用固定密码: $FIXED_PASSWORD"
 fi
 
-if [ -z "$DEFAULT_PASSWORD" ]; then
-    echo "❌ 无法获取密码，跳过恢复"
-    exit 0
+# 如果所有方式都失败
+if [ -z "$PASSWORD" ]; then
+    echo "❌ 无法获取密码！"
+    echo "请确保:"
+    echo "  1. 设置了 ADMIN_PASSWORD 环境变量"
+    echo "  2. 面板已启动并有 PM2 日志"
+    echo "  3. 固定密码配置正确"
+    exit 1
 fi
 
-echo "✅ 密码: ${DEFAULT_PASSWORD:0:10}..."
+echo "✅ 密码获取成功: ${PASSWORD:0:10}..."
 
 # ============================================================
-# 7. 登录面板（修复版）
+# 7. 登录面板
 # ============================================================
 echo "🔐 登录面板..."
 
@@ -127,7 +151,7 @@ LOGIN_RESPONSE=$(curl -v -c /tmp/cookies.txt -D /tmp/headers.txt \
     -s -w "\nHTTP_CODE:%{http_code}" \
     'http://localhost:8052/api/v1/auth/login' \
     -H 'Content-Type: application/json' \
-    --data-raw "{\"username\":\"admin\",\"password\":\"$DEFAULT_PASSWORD\"}" 2>&1)
+    --data-raw "{\"username\":\"admin\",\"password\":\"$PASSWORD\"}" 2>&1)
 
 echo "$LOGIN_RESPONSE"
 
@@ -141,6 +165,13 @@ if [ -z "$BHToken" ] || [ "$HTTP_CODE" != "200" ]; then
     echo "❌ 登录失败 (HTTP: $HTTP_CODE)"
     echo ""
     echo "===== 调试信息 ====="
+    echo "使用的密码来源:"
+    if [ -n "$ADMIN_PASSWORD" ]; then
+        echo "  - 环境变量 ADMIN_PASSWORD: ${ADMIN_PASSWORD:0:10}..."
+    fi
+    echo "  - PM2 日志密码: $(pm2 logs baihu --lines 50 --nostream 2>/dev/null | grep -oP '密\s*码[:：]\s*\K[^,[:space:]]+' | tail -1)"
+    echo "  - 固定密码: $FIXED_PASSWORD"
+    echo ""
     echo "HTTP Headers:"
     cat /tmp/headers.txt 2>/dev/null || echo "无 headers"
     echo ""
@@ -151,23 +182,29 @@ if [ -z "$BHToken" ] || [ "$HTTP_CODE" != "200" ]; then
     echo "$LOGIN_RESPONSE" | head -20
     echo "==================="
     
-    # 尝试使用 ADMIN_PASSWORD 再试一次
-    if [ -n "$ADMIN_PASSWORD" ] && [ "$ADMIN_PASSWORD" != "$DEFAULT_PASSWORD" ]; then
-        echo "🔄 尝试使用 ADMIN_PASSWORD 登录..."
-        BHToken=$(curl -c /tmp/cookies.txt -s -D - -o /dev/null \
+    # 尝试使用固定密码再试一次
+    if [ "$PASSWORD" != "$FIXED_PASSWORD" ]; then
+        echo "🔄 尝试使用固定密码登录..."
+        LOGIN_RESPONSE2=$(curl -v -c /tmp/cookies.txt -D /tmp/headers.txt \
+            -s -w "\nHTTP_CODE:%{http_code}" \
             'http://localhost:8052/api/v1/auth/login' \
             -H 'Content-Type: application/json' \
-            --data-raw "{\"username\":\"admin\",\"password\":\"$ADMIN_PASSWORD\"}" \
-            | awk -F'[=;]' '/Set-Cookie: BHToken=/{print $2}')
+            --data-raw "{\"username\":\"admin\",\"password\":\"$FIXED_PASSWORD\"}" 2>&1)
         
-        if [ -n "$BHToken" ]; then
-            echo "✅ 使用 ADMIN_PASSWORD 登录成功"
-            DEFAULT_PASSWORD="$ADMIN_PASSWORD"
+        HTTP_CODE2=$(echo "$LOGIN_RESPONSE2" | grep "HTTP_CODE:" | cut -d':' -f2)
+        BHToken2=$(cat /tmp/cookies.txt 2>/dev/null | grep BHToken | awk -F'[=;]' '{print $2}' | tr -d ' ')
+        
+        if [ -n "$BHToken2" ] && [ "$HTTP_CODE2" == "200" ]; then
+            echo "✅ 使用固定密码登录成功"
+            PASSWORD="$FIXED_PASSWORD"
+            BHToken="$BHToken2"
+            HTTP_CODE="$HTTP_CODE2"
+        else
+            echo "❌ 固定密码也登录失败"
+            rm -f /tmp/cookies.txt /tmp/headers.txt
+            exit 0
         fi
-    fi
-    
-    if [ -z "$BHToken" ]; then
-        echo "❌ 所有登录方式都失败，跳过恢复"
+    else
         rm -f /tmp/cookies.txt /tmp/headers.txt
         exit 0
     fi
@@ -176,20 +213,7 @@ fi
 echo "✅ 登录成功 (Token: ${BHToken:0:20}...)"
 
 # ============================================================
-# 8. 重置密码（如果需要）
-# ============================================================
-if [ -n "$ADMIN_PASSWORD" ] && [ "$ADMIN_PASSWORD" != "$DEFAULT_PASSWORD" ]; then
-    echo "🔄 重置密码..."
-    curl -b /tmp/cookies.txt -s \
-        'http://localhost:8052/api/v1/settings/password' \
-        -H 'Content-Type: application/json' \
-        --data-raw "{\"old_password\":\"$DEFAULT_PASSWORD\",\"new_password\":\"$ADMIN_PASSWORD\"}" \
-        > /dev/null
-    echo "✅ 密码已重置"
-fi
-
-# ============================================================
-# 9. 下载备份
+# 8. 下载备份
 # ============================================================
 echo "⬇️ 下载备份文件..."
 mkdir -p /app/backup_tmp
@@ -205,7 +229,7 @@ fi
 echo "✅ 下载完成"
 
 # ============================================================
-# 10. 执行恢复
+# 9. 执行恢复
 # ============================================================
 echo "🔄 执行数据恢复..."
 
@@ -220,7 +244,7 @@ else
 fi
 
 # ============================================================
-# 11. 清理和重启
+# 10. 清理和重启
 # ============================================================
 echo "🧹 清理..."
 rm -rf /app/backup_tmp
